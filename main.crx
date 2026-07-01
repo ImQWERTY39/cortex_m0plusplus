@@ -1,0 +1,12 @@
+<cortex>
+	<main>
+		<movs rd="R0" imm="2" />
+
+		<loopstwice>
+			<subs rd="R0" imm="1" />
+			<bne label="loopstwice" />	
+		</loopstwice>
+
+		<nop />
+	</main>
+</cortex>
