@@ -11,10 +11,23 @@ __Vectors
 
 Reset_Handler PROC
 	MOVS		R0, #2
-loopstwice
-	SUBS		R0, R0, #1
-	BNE		loopstwice
-	NOP
+	
+	CMP		R0, #1
+	BLE		if_73_exit
+	MOVS		R4, #1
+	B		conditionals_73_exit
+
+if_73_exit
+	BGE		elseif_126_exit
+	MOVS		R4, #2
+	B		conditionals_73_exit
+elseif_126_exit
+
+	MOVS		R4, #3
+
+conditionals_73_exit
+
+	PUSH		{R0, R1, R2, R3, R4}
 End_Loop
 	B		End_Loop
 	ENDP

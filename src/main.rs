@@ -2,6 +2,7 @@ use roxmltree as xml;
 
 mod emitter;
 mod parser;
+mod semantic_analyzer;
 
 fn main() {
     let source_code = std::fs::read_to_string("./main.crx").unwrap();
@@ -18,8 +19,9 @@ fn main() {
         );
     }
 
-    let ast = parser::gen_ast(root);
+    let ast = parser::gen_ast(&doc, root);
     println!("{:#?}", ast);
 
+    // semantic_analyzer::analyze(ast);
     emitter::write_basic(ast);
 }

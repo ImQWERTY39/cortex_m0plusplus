@@ -223,13 +223,15 @@ impl std::fmt::Display for RegisterList {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{{")?;
 
+        let mut first_write = true;
         for i in 0..16 {
             if (self.0 & (1 << i)) != 0 {
-                write!(f, "{}", Register::from_num(i))?;
-            }
+                if !first_write {
+                    write!(f, ", ")?;
+                }
 
-            if i != 15 {
-                write!(f, ", ")?;
+                write!(f, "{}", Register::from_num(i))?;
+                first_write = false;
             }
         }
 

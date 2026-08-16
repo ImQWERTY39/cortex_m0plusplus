@@ -1,18 +1,22 @@
 use roxmltree as xml;
 
+mod condition_expr;
 mod immediate;
 mod instruction;
 mod operand;
 mod program;
 mod register;
 
+pub use condition_expr::ConditionFlag;
 pub use immediate::Immediate;
 pub use instruction::{Instruction, Label};
 pub use program::Function;
 pub use program::Program;
 pub use register::{Register, RegisterList, SpecialRegister};
 
-pub fn gen_ast(root: xml::Node) -> Function {
+pub fn gen_ast(doc: &xml::Document, root: xml::Node) -> Function {
+    let mut instructions = Vec::new();
+    let mut labels = Vec::new();
     let main = match root.children().find(|func| func.has_tag_name("main")) {
         Some(i) => i,
         None => todo!("missing main function"),
@@ -22,27 +26,29 @@ pub fn gen_ast(root: xml::Node) -> Function {
     //     functions: root.children().map(block_ast).collect(),
     // }
 
-    block_ast(main)
+    block_ast(&doc, main, &mut instructions, &mut labels);
+
+    Function {
+        instructions,
+        labels,
+    }
 }
 
-pub fn block_ast(parent: xml::Node) -> Function {
-    let mut instructions = Vec::new();
-    let mut labels = Vec::new();
+pub fn block_ast(
+    doc: &xml::Document,
+    parent: xml::Node,
+    instructions: &mut Vec<Instruction>,
+    labels: &mut Vec<(String, usize)>,
+) {
+    let mut add_closing_after_else: Option<String> = None;
 
-    for (idx, instruction) in parent.children().filter(xml::Node::is_element).enumerate() {
+    for instruction in parent.children().filter(xml::Node::is_element) {
         match instruction.tag_name().name() {
             "adcs" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
-                let rn = match instruction.attribute("rn") {
-                    Some(i) => i.try_into().unwrap(),
-                    None => rd,
-                };
+                let rn = instruction.attribute("rn").unwrap().try_into().unwrap();
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::ADCS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::ADCS(rd, rd, rn));
-                }
+                instructions.push(Instruction::ADCS(rd, rn));
             }
 
             "add" => {
@@ -52,9 +58,7 @@ pub fn block_ast(parent: xml::Node) -> Function {
                     None => rd,
                 };
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::ADD(rd, rn, rm.try_into().unwrap()));
-                } else if let Some(imm) = instruction.attribute("imm") {
+                if let Some(imm) = instruction.attribute("imm") {
                     instructions.push(Instruction::ADD(rd, rn, imm.try_into().unwrap()));
                 } else {
                     instructions.push(Instruction::ADD(rd, rd, rn.into()));
@@ -73,7 +77,7 @@ pub fn block_ast(parent: xml::Node) -> Function {
                 } else if let Some(imm) = instruction.attribute("imm") {
                     instructions.push(Instruction::ADDS(rd, rn, imm.try_into().unwrap()));
                 } else {
-                    instructions.push(Instruction::ADDS(rd, rd, rn.into()));
+                    todo!()
                 }
             }
 
@@ -89,17 +93,11 @@ pub fn block_ast(parent: xml::Node) -> Function {
 
             "sub" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
-                let rn = match instruction.attribute("rn") {
-                    Some(i) => i.try_into().unwrap(),
-                    None => rd,
-                };
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::SUB(rd, rn, rm.try_into().unwrap()));
-                } else if let Some(imm) = instruction.attribute("imm") {
-                    instructions.push(Instruction::SUB(rd, rn, imm.try_into().unwrap()));
+                if let Some(imm) = instruction.attribute("imm") {
+                    instructions.push(Instruction::SUB(rd, imm.try_into().unwrap()));
                 } else {
-                    instructions.push(Instruction::SUB(rd, rd, rn.into()));
+                    todo!()
                 }
             }
 
@@ -126,69 +124,41 @@ pub fn block_ast(parent: xml::Node) -> Function {
                     None => rd,
                 };
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::RSBS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::RSBS(rd, rd, rn.into()));
-                }
+                instructions.push(Instruction::RSBS(rd, rn));
             }
 
             "sbcs" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
-                let rn = match instruction.attribute("rn") {
-                    Some(i) => i.try_into().unwrap(),
-                    None => rd,
-                };
-
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::SBCS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::SBCS(rd, rd, rn));
-                }
+                let rn = instruction.attribute("rn").unwrap().try_into().unwrap();
+                instructions.push(Instruction::SBCS(rd, rn));
             }
 
             "ands" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
                 let rn = instruction.attribute("rn").unwrap().try_into().unwrap();
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::ANDS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::ANDS(rd, rd, rn));
-                }
+                instructions.push(Instruction::ANDS(rd, rn));
             }
 
             "eors" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
                 let rn = instruction.attribute("rn").unwrap().try_into().unwrap();
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::EORS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::EORS(rd, rd, rn));
-                }
+                instructions.push(Instruction::EORS(rd, rn));
             }
 
             "bics" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
                 let rn = instruction.attribute("rn").unwrap().try_into().unwrap();
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::BICS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::BICS(rd, rd, rn));
-                }
+                instructions.push(Instruction::BICS(rd, rn));
             }
 
             "orrs" => {
                 let rd = instruction.attribute("rd").unwrap().try_into().unwrap();
                 let rn = instruction.attribute("rn").unwrap().try_into().unwrap();
 
-                if let Some(rm) = instruction.attribute("rm") {
-                    instructions.push(Instruction::ORRS(rd, rn, rm.try_into().unwrap()));
-                } else {
-                    instructions.push(Instruction::ORRS(rd, rd, rn));
-                }
+                instructions.push(Instruction::ORRS(rd, rn));
             }
 
             "tst" => {
@@ -358,9 +328,9 @@ pub fn block_ast(parent: xml::Node) -> Function {
                     instructions.push(Instruction::CMP(rn, i.try_into().unwrap()));
                 } else if let Some(i) = instruction.attribute("imm") {
                     instructions.push(Instruction::CMP(rn, i.try_into().unwrap()));
+                } else {
+                    todo!()
                 }
-
-                todo!()
             }
 
             "cmn" => {
@@ -544,18 +514,159 @@ pub fn block_ast(parent: xml::Node) -> Function {
             "wfe" => instructions.push(Instruction::WFE),
             "wfi" => instructions.push(Instruction::WFI),
 
-            label => {
-                labels.push((label.to_string(), idx));
-                let f = block_ast(instruction);
+            "if" => {
+                let cond: ConditionFlag =
+                    instruction.attribute("cond").unwrap().try_into().unwrap();
+                let false_jump_label = format!("if_{}_exit", instruction.range().start);
 
-                instructions.extend(f.instructions);
-                labels.extend(f.labels.into_iter().map(|(s, i)| (s, i + idx + 1)));
+                match cond.invert() {
+                    ConditionFlag::CarryClear => {
+                        instructions.push(Instruction::BCC(false_jump_label.clone()))
+                    }
+                    ConditionFlag::CarrySet => {
+                        instructions.push(Instruction::BCS(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Equal => {
+                        instructions.push(Instruction::BEQ(false_jump_label.clone()))
+                    }
+                    ConditionFlag::NotEqual => {
+                        instructions.push(Instruction::BNE(false_jump_label.clone()))
+                    }
+                    ConditionFlag::GreaterThanOrEqual => {
+                        instructions.push(Instruction::BGE(false_jump_label.clone()))
+                    }
+                    ConditionFlag::GreaterThan => {
+                        instructions.push(Instruction::BGT(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Higher => {
+                        instructions.push(Instruction::BHI(false_jump_label.clone()))
+                    }
+                    ConditionFlag::HigherOrSame => {
+                        instructions.push(Instruction::BHS(false_jump_label.clone()))
+                    }
+                    ConditionFlag::LessThanOrEqual => {
+                        instructions.push(Instruction::BLE(false_jump_label.clone()))
+                    }
+                    ConditionFlag::LessThan => {
+                        instructions.push(Instruction::BLT(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Lower => {
+                        instructions.push(Instruction::BLO(false_jump_label.clone()))
+                    }
+                    ConditionFlag::LowerOrSame => {
+                        instructions.push(Instruction::BLS(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Minus => {
+                        instructions.push(Instruction::BMI(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Plus => {
+                        instructions.push(Instruction::BPL(false_jump_label.clone()))
+                    }
+                    ConditionFlag::OverflowClear => {
+                        instructions.push(Instruction::BVC(false_jump_label.clone()))
+                    }
+                    ConditionFlag::OverflowSet => {
+                        instructions.push(Instruction::BVS(false_jump_label.clone()))
+                    }
+                }
+
+                block_ast(doc, instruction, instructions, labels);
+                if instruction
+                    .next_sibling_element()
+                    .is_some_and(|tag| tag.has_tag_name("elseif") || tag.has_tag_name("else"))
+                {
+                    let skip_if_blocks = format!("conditionals_{}_exit", instruction.range().start);
+
+                    add_closing_after_else = Some(skip_if_blocks.clone());
+                    instructions.push(Instruction::B(skip_if_blocks));
+
+                    labels.push((false_jump_label, instructions.len()));
+                } else {
+                    labels.push((false_jump_label, instructions.len()));
+                }
+            }
+
+            "elseif" => {
+                let cond: ConditionFlag =
+                    instruction.attribute("cond").unwrap().try_into().unwrap();
+                let false_jump_label = format!("elseif_{}_exit", instruction.range().start);
+
+                match cond.invert() {
+                    ConditionFlag::CarryClear => {
+                        instructions.push(Instruction::BCC(false_jump_label.clone()))
+                    }
+                    ConditionFlag::CarrySet => {
+                        instructions.push(Instruction::BCS(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Equal => {
+                        instructions.push(Instruction::BEQ(false_jump_label.clone()))
+                    }
+                    ConditionFlag::NotEqual => {
+                        instructions.push(Instruction::BNE(false_jump_label.clone()))
+                    }
+                    ConditionFlag::GreaterThanOrEqual => {
+                        instructions.push(Instruction::BGE(false_jump_label.clone()))
+                    }
+                    ConditionFlag::GreaterThan => {
+                        instructions.push(Instruction::BGT(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Higher => {
+                        instructions.push(Instruction::BHI(false_jump_label.clone()))
+                    }
+                    ConditionFlag::HigherOrSame => {
+                        instructions.push(Instruction::BHS(false_jump_label.clone()))
+                    }
+                    ConditionFlag::LessThanOrEqual => {
+                        instructions.push(Instruction::BLE(false_jump_label.clone()))
+                    }
+                    ConditionFlag::LessThan => {
+                        instructions.push(Instruction::BLT(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Lower => {
+                        instructions.push(Instruction::BLO(false_jump_label.clone()))
+                    }
+                    ConditionFlag::LowerOrSame => {
+                        instructions.push(Instruction::BLS(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Minus => {
+                        instructions.push(Instruction::BMI(false_jump_label.clone()))
+                    }
+                    ConditionFlag::Plus => {
+                        instructions.push(Instruction::BPL(false_jump_label.clone()))
+                    }
+                    ConditionFlag::OverflowClear => {
+                        instructions.push(Instruction::BVC(false_jump_label.clone()))
+                    }
+                    ConditionFlag::OverflowSet => {
+                        instructions.push(Instruction::BVS(false_jump_label.clone()))
+                    }
+                }
+
+                block_ast(doc, instruction, instructions, labels);
+                if instruction
+                    .next_sibling_element()
+                    .is_some_and(|tag| tag.has_tag_name("elseif") || tag.has_tag_name("else"))
+                {
+                    instructions.push(Instruction::B(add_closing_after_else.clone().unwrap()));
+                    labels.push((false_jump_label, instructions.len()));
+                } else {
+                    labels.push((false_jump_label, instructions.len()));
+                    labels.push((add_closing_after_else.unwrap(), instructions.len()));
+                    add_closing_after_else = None;
+                }
+            }
+
+            "else" => {
+                block_ast(doc, instruction, instructions, labels);
+
+                labels.push((add_closing_after_else.unwrap(), instructions.len()));
+                add_closing_after_else = None;
+            }
+
+            label => {
+                labels.push((label.to_string(), instructions.len()));
+                block_ast(doc, instruction, instructions, labels);
             }
         }
-    }
-
-    Function {
-        instructions,
-        labels,
     }
 }

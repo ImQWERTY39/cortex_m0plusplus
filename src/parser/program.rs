@@ -8,5 +8,5 @@ pub struct Function {
 
 #[derive(Debug)]
 pub struct Program {
-    pub functions: Vec<Function>,
+    pub functions: Vec<(String, Function)>,
 }
